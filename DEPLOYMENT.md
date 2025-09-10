@@ -30,7 +30,33 @@ This guide explains how to deploy the Telegram AI Image Editor Bot to various pl
 
 ## Production Deployment
 
-### Option 1: VPS/Dedicated Server
+### Option 1: Cloudflare Workers (Recommended)
+
+**Best for:** Global serverless deployment with excellent performance
+
+1. **Install Wrangler:**
+   ```bash
+   npm install -g wrangler
+   ```
+
+2. **Login and setup:**
+   ```bash
+   npm run cf:setup
+   ```
+
+3. **Deploy:**
+   ```bash
+   npm run deploy
+   ```
+
+4. **Setup webhook:**
+   ```bash
+   npm run cf:webhook https://your-worker.your-subdomain.workers.dev
+   ```
+
+See `CLOUDFLARE.md` for detailed instructions.
+
+### Option 2: VPS/Dedicated Server
 
 1. **Setup server with Node.js:**
    ```bash
@@ -68,7 +94,7 @@ This guide explains how to deploy the Telegram AI Image Editor Bot to various pl
    pm2 save
    ```
 
-### Option 2: Heroku
+### Option 3: Heroku
 
 1. **Create Heroku app:**
    ```bash
@@ -93,7 +119,7 @@ This guide explains how to deploy the Telegram AI Image Editor Bot to various pl
    git push heroku main
    ```
 
-### Option 3: Railway
+### Option 4: Railway
 
 1. **Connect your GitHub repo to Railway**
 2. **Set environment variables in Railway dashboard:**
@@ -102,7 +128,7 @@ This guide explains how to deploy the Telegram AI Image Editor Bot to various pl
 
 3. **Railway will auto-deploy on push**
 
-### Option 4: DigitalOcean App Platform
+### Option 5: DigitalOcean App Platform
 
 1. **Create new app from GitHub repo**
 2. **Configure build and run commands:**
@@ -112,7 +138,7 @@ This guide explains how to deploy the Telegram AI Image Editor Bot to various pl
    - `BOT_TOKEN`: your_token_here
    - `NODE_ENV`: production
 
-### Option 5: AWS EC2
+### Option 6: AWS EC2
 
 1. **Launch EC2 instance (Ubuntu 20.04 LTS)**
 2. **Install Node.js:**
@@ -130,7 +156,7 @@ This guide explains how to deploy the Telegram AI Image Editor Bot to various pl
 
 4. **Configure environment and start with PM2**
 
-### Option 6: Docker
+### Option 7: Docker
 
 1. **Create Dockerfile:**
    ```dockerfile

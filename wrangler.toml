@@ -1,0 +1,25 @@
+name = "telegram-ai-image-editor"
+main = "src/worker.js"
+compatibility_date = "2024-03-08"
+compatibility_flags = ["nodejs_compat"]
+
+[env.production]
+name = "telegram-ai-image-editor"
+
+[env.staging]
+name = "telegram-ai-image-editor-staging"
+
+# Environment variables will be set via wrangler secret
+# BOT_TOKEN will be stored as a secret
+
+# Increase memory limit for image processing
+limits = { cpu_ms = 50000 }
+
+# Enable Node.js compatibility for our dependencies
+node_compat = true
+
+# KV namespace for storing temporary data (optional)
+# [[kv_namespaces]]
+# binding = "TEMP_STORAGE"
+# id = "your_kv_namespace_id"
+# preview_id = "your_preview_kv_namespace_id"
