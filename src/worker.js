@@ -1,77 +1,164 @@
 /**
  * @fileoverview Cloudflare Workers entry point for Telegram AI Image Editor Bot
- * This file adapts the bot for Cloudflare Workers environment
+ * This file uses native fetch API instead of Telegraf for Workers compatibility
  */
 
-import { Telegraf } from 'telegraf';
+// Simple Telegram Bot API wrapper for Workers
+class TelegramBot {
+    constructor(token) {
+        this.token = token;
+        this.apiUrl = `https://api.telegram.org/bot${token}`;
+    }
 
-// Simple image processing utilities for Workers environment
-// Note: Sharp doesn't work in Workers, so we'll use basic Canvas API or external services
-class WorkerImageUtils {
-    static async convertToGrayscale(imageBuffer) {
-        // For Cloudflare Workers, we'll use the browser Canvas API
-        const canvas = new OffscreenCanvas(1, 1);
-        const ctx = canvas.getContext('2d');
-        
-        // Create ImageData from buffer and convert to grayscale
-        // This is a simplified version - you might want to use external APIs
-        return imageBuffer; // Placeholder
+    async sendMessage(chatId, text, options = {}) {
+        const payload = {
+            chat_id: chatId,
+            text: text,
+            parse_mode: options.parse_mode || 'Markdown',
+            ...options
+        };
+
+        const response = await fetch(`${this.apiUrl}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        return await response.json();
     }
-    
-    static async resizeImage(imageBuffer, width, height) {
-        // Use Canvas API for basic resizing
-        const canvas = new OffscreenCanvas(width, height);
-        const ctx = canvas.getContext('2d');
+
+    async sendPhoto(chatId, photoBuffer, options = {}) {
+        const formData = new FormData();
+        formData.append('chat_id', chatId);
+        formData.append('photo', new Blob([photoBuffer]), 'image.jpg');
         
-        // Basic resize implementation
-        return imageBuffer; // Placeholder
+        if (options.caption) {
+            formData.append('caption', options.caption);
+        }
+        if (options.reply_markup) {
+            formData.append('reply_markup', JSON.stringify(options.reply_markup));
+        }
+
+        const response = await fetch(`${this.apiUrl}/sendPhoto`, {
+            method: 'POST',
+            body: formData
+        });
+
+        return await response.json();
     }
-    
-    static async addTextOverlay(imageBuffer, text, options = {}) {
-        // Use Canvas API for text overlay
-        const canvas = new OffscreenCanvas(800, 600);
-        const ctx = canvas.getContext('2d');
-        
-        // Add text overlay implementation
-        return imageBuffer; // Placeholder
+
+    async editMessageText(chatId, messageId, text, options = {}) {
+        const payload = {
+            chat_id: chatId,
+            message_id: messageId,
+            text: text,
+            parse_mode: options.parse_mode || 'Markdown',
+            ...options
+        };
+
+        const response = await fetch(`${this.apiUrl}/editMessageText`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        return await response.json();
+    }
+
+    async answerCallbackQuery(callbackQueryId, options = {}) {
+        const payload = {
+            callback_query_id: callbackQueryId,
+            ...options
+        };
+
+        const response = await fetch(`${this.apiUrl}/answerCallbackQuery`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        return await response.json();
+    }
+
+    async getFile(fileId) {
+        const response = await fetch(`${this.apiUrl}/getFile?file_id=${fileId}`);
+        return await response.json();
     }
 }
 
-// Bot configuration for Workers
-function createWorkerBot(token) {
-    const bot = new Telegraf(token);
-    
-    // Store user sessions in memory (for simple use cases)
-    // For production, consider using Cloudflare KV or Durable Objects
-    const userSessions = new Map();
-    
-    function getUserSession(userId) {
-        if (!userSessions.has(userId)) {
-            userSessions.set(userId, {
+// Simple image processing utilities for Workers environment
+class WorkerImageUtils {
+    static async downloadImage(bot, fileId) {
+        const fileInfo = await bot.getFile(fileId);
+        if (!fileInfo.ok) {
+            throw new Error('Failed to get file info');
+        }
+
+        const fileUrl = `https://api.telegram.org/file/bot${bot.token}/${fileInfo.result.file_path}`;
+        const response = await fetch(fileUrl);
+        
+        if (!response.ok) {
+            throw new Error('Failed to download image');
+        }
+
+        return await response.arrayBuffer();
+    }
+
+    static async processImage(imageBuffer, operation, options = {}) {
+        // For now, return the original image
+        // In a real implementation, you could:
+        // 1. Use Canvas API for basic operations
+        // 2. Call external image processing APIs
+        // 3. Use Cloudflare Image Resizing service
+        
+        console.log(`Processing image with operation: ${operation}`);
+        return imageBuffer;
+    }
+}
+
+// Bot logic
+class WorkerBot {
+    constructor(token) {
+        this.bot = new TelegramBot(token);
+        this.userSessions = new Map();
+    }
+
+    getUserSession(userId) {
+        if (!this.userSessions.has(userId)) {
+            this.userSessions.set(userId, {
                 currentImage: null,
                 awaitingText: false,
                 awaitingDimensions: false,
                 awaitingRotation: false
             });
         }
-        return userSessions.get(userId);
+        return this.userSessions.get(userId);
     }
-    
-    // Download file from Telegram
-    async function downloadFile(ctx, fileId) {
-        const fileInfo = await ctx.telegram.getFile(fileId);
-        const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`;
-        
-        const response = await fetch(fileUrl);
-        return await response.arrayBuffer();
-    }
-    
-    // Start command
-    bot.start(async (ctx) => {
-        const welcomeMessage = `
-🤖 **Welcome to AI Image Editor Bot!** (Cloudflare Workers Edition)
 
-I can help you edit images with basic editing features optimized for the cloud.
+    createEditingKeyboard() {
+        return {
+            inline_keyboard: [
+                [
+                    { text: '⚫ Grayscale', callback_data: 'edit_grayscale' },
+                    { text: '📏 Resize', callback_data: 'edit_resize' }
+                ],
+                [
+                    { text: '📝 Add Text', callback_data: 'edit_add_text' },
+                    { text: '🔄 Rotate 90°', callback_data: 'edit_rotate' }
+                ],
+                [
+                    { text: '🆕 New Image', callback_data: 'edit_new' },
+                    { text: '❌ Cancel', callback_data: 'edit_cancel' }
+                ]
+            ]
+        };
+    }
+
+    async handleStart(chatId) {
+        const welcomeMessage = `
+🤖 **Welcome to AI Image Editor Bot!** 
+
+I can help you edit images with cloud-optimized editing features.
 
 **Available Features:**
 ⚫ Grayscale Conversion
@@ -93,25 +180,23 @@ I can help you edit images with basic editing features optimized for the cloud.
 Ready to edit some images? Send /edit to begin! 🎨
         `;
         
-        await ctx.replyWithMarkdown(welcomeMessage);
-    });
-    
-    // Edit command
-    bot.command('edit', async (ctx) => {
-        const session = getUserSession(ctx.from.id);
+        return await this.bot.sendMessage(chatId, welcomeMessage);
+    }
+
+    async handleEdit(chatId) {
+        const session = this.getUserSession(chatId);
         session.currentImage = null;
         
-        await ctx.reply(
+        return await this.bot.sendMessage(chatId,
             '📤 Please send me an image to edit!\n\n' +
             'Supported formats: JPG, PNG\n' +
-            'Maximum file size: 10MB (Workers limit)'
+            'Maximum file size: 10MB'
         );
-    });
-    
-    // Help command
-    bot.help(async (ctx) => {
+    }
+
+    async handleHelp(chatId) {
         const helpMessage = `
-🆘 **Help - AI Image Editor Bot** (Workers Edition)
+🆘 **Help - AI Image Editor Bot**
 
 **Available Editing Options:**
 
@@ -120,173 +205,154 @@ Ready to edit some images? Send /edit to begin! 🎨
 📝 **Add Text** - Overlay custom text on images
 🔄 **Rotate** - Basic rotation (90° increments)
 
-**Note:** This is the Cloudflare Workers version with optimized features for cloud deployment.
+**Note:** This is the Cloudflare Workers version optimized for global deployment.
 
 **Commands:**
 /start - Welcome message  
 /edit - Start editing
 /help - This help message
+
+**Powered by Cloudflare Workers** 🌍
         `;
         
-        await ctx.replyWithMarkdown(helpMessage);
-    });
-    
-    // Handle image uploads
-    bot.on('photo', async (ctx) => {
+        return await this.bot.sendMessage(chatId, helpMessage);
+    }
+
+    async handlePhoto(update) {
+        const chatId = update.message.chat.id;
+        const session = this.getUserSession(chatId);
+        
         try {
-            const session = getUserSession(ctx.from.id);
-            const photo = ctx.message.photo[ctx.message.photo.length - 1];
+            const photo = update.message.photo[update.message.photo.length - 1];
             
-            await ctx.reply('⏳ Processing your image...');
+            await this.bot.sendMessage(chatId, '⏳ Processing your image...');
             
-            const imageBuffer = await downloadFile(ctx, photo.file_id);
+            const imageBuffer = await WorkerImageUtils.downloadImage(this.bot, photo.file_id);
             session.currentImage = imageBuffer;
             
-            // Create inline keyboard
-            const keyboard = {
-                inline_keyboard: [
-                    [
-                        { text: '⚫ Grayscale', callback_data: 'edit_grayscale' },
-                        { text: '📏 Resize', callback_data: 'edit_resize' }
-                    ],
-                    [
-                        { text: '📝 Add Text', callback_data: 'edit_add_text' },
-                        { text: '🔄 Rotate 90°', callback_data: 'edit_rotate' }
-                    ],
-                    [
-                        { text: '🆕 New Image', callback_data: 'edit_new' },
-                        { text: '❌ Cancel', callback_data: 'edit_cancel' }
-                    ]
-                ]
-            };
-            
-            await ctx.reply('✅ Image ready for editing! Choose an option:', {
-                reply_markup: keyboard
-            });
+            return await this.bot.sendMessage(chatId, 
+                '✅ Image ready for editing! Choose an option:', 
+                { reply_markup: this.createEditingKeyboard() }
+            );
             
         } catch (error) {
             console.error('Error processing image:', error);
-            await ctx.reply('❌ Error processing your image. Please try again.');
+            return await this.bot.sendMessage(chatId, '❌ Error processing your image. Please try again.');
         }
-    });
-    
-    // Handle callback queries
-    bot.action('edit_grayscale', async (ctx) => {
-        await ctx.answerCbQuery();
-        await ctx.editMessageText('⏳ Converting to grayscale...');
-        
-        try {
-            const session = getUserSession(ctx.from.id);
-            if (!session.currentImage) {
-                return ctx.reply('❌ No image found. Please send an image first.');
-            }
-            
-            // Process image (placeholder - implement actual conversion)
-            const processedImage = await WorkerImageUtils.convertToGrayscale(session.currentImage);
-            
-            // For now, we'll just confirm the operation
-            await ctx.reply('✅ Image converted to grayscale! (Feature coming soon in Workers)');
-            
-        } catch (error) {
-            console.error('Error converting to grayscale:', error);
-            await ctx.reply('❌ Error converting image. Please try again.');
+    }
+
+    async handleCallbackQuery(update) {
+        const callbackQuery = update.callback_query;
+        const chatId = callbackQuery.message.chat.id;
+        const messageId = callbackQuery.message.message_id;
+        const data = callbackQuery.data;
+        const session = this.getUserSession(chatId);
+
+        await this.bot.answerCallbackQuery(callbackQuery.id);
+
+        switch (data) {
+            case 'edit_grayscale':
+                await this.bot.editMessageText(chatId, messageId, '⏳ Converting to grayscale...');
+                
+                if (!session.currentImage) {
+                    return await this.bot.sendMessage(chatId, '❌ No image found. Please send an image first.');
+                }
+                
+                // Process image (placeholder)
+                await this.bot.sendMessage(chatId, '✅ Image converted to grayscale! (Processing simulated)');
+                break;
+
+            case 'edit_resize':
+                session.awaitingDimensions = true;
+                await this.bot.editMessageText(chatId, messageId,
+                    '📏 **Resize Image**\n\n' +
+                    'Please enter the new dimensions:\n' +
+                    'Format: `800x600` or `1920x1080`\n\n' +
+                    'Common sizes:\n' +
+                    '• HD: 1280x720\n' +
+                    '• Full HD: 1920x1080\n' +
+                    '• Square: 800x800'
+                );
+                break;
+
+            case 'edit_add_text':
+                session.awaitingText = true;
+                await this.bot.editMessageText(chatId, messageId,
+                    '📝 **Add Text Overlay**\n\n' +
+                    'Please enter the text you want to add:\n\n' +
+                    '• Text will be centered on the image\n' +
+                    '• Keep it short for best results\n\n' +
+                    'Type your text now:'
+                );
+                break;
+
+            case 'edit_rotate':
+                await this.bot.editMessageText(chatId, messageId, '🔄 Rotating image 90° clockwise...');
+                await this.bot.sendMessage(chatId, '✅ Image rotated 90°! (Processing simulated)');
+                break;
+
+            case 'edit_new':
+                session.currentImage = null;
+                await this.bot.editMessageText(chatId, messageId, '📤 Please send me a new image to edit!');
+                break;
+
+            case 'edit_cancel':
+                session.currentImage = null;
+                await this.bot.editMessageText(chatId, messageId, '❌ Editing cancelled. Send /edit to start again.');
+                break;
         }
-    });
-    
-    bot.action('edit_resize', async (ctx) => {
-        await ctx.answerCbQuery();
-        const session = getUserSession(ctx.from.id);
-        session.awaitingDimensions = true;
-        
-        await ctx.editMessageText(
-            '📏 **Resize Image**\n\n' +
-            'Please enter the new dimensions:\n' +
-            'Format: `800x600` or `1920x1080`\n\n' +
-            'Common sizes:\n' +
-            '• HD: 1280x720\n' +
-            '• Full HD: 1920x1080\n' +
-            '• Square: 800x800',
-            { parse_mode: 'Markdown' }
-        );
-    });
-    
-    bot.action('edit_add_text', async (ctx) => {
-        await ctx.answerCbQuery();
-        const session = getUserSession(ctx.from.id);
-        session.awaitingText = true;
-        
-        await ctx.editMessageText(
-            '📝 **Add Text Overlay**\n\n' +
-            'Please enter the text you want to add:\n\n' +
-            '• Text will be centered on the image\n' +
-            '• Keep it short for best results\n\n' +
-            'Type your text now:'
-        );
-    });
-    
-    bot.action('edit_rotate', async (ctx) => {
-        await ctx.answerCbQuery();
-        await ctx.editMessageText('🔄 Rotating image 90° clockwise...');
-        
-        // Implement rotation logic
-        await ctx.reply('✅ Image rotated 90°! (Feature coming soon in Workers)');
-    });
-    
-    bot.action('edit_new', async (ctx) => {
-        await ctx.answerCbQuery();
-        const session = getUserSession(ctx.from.id);
-        session.currentImage = null;
-        await ctx.editMessageText('📤 Please send me a new image to edit!');
-    });
-    
-    bot.action('edit_cancel', async (ctx) => {
-        await ctx.answerCbQuery();
-        const session = getUserSession(ctx.from.id);
-        session.currentImage = null;
-        await ctx.editMessageText('❌ Editing cancelled. Send /edit to start again.');
-    });
-    
-    // Handle text input
-    bot.on('text', async (ctx) => {
-        const session = getUserSession(ctx.from.id);
-        
-        if (session.awaitingText) {
-            const text = ctx.message.text;
+    }
+
+    async handleText(update) {
+        const chatId = update.message.chat.id;
+        const text = update.message.text;
+        const session = this.getUserSession(chatId);
+
+        if (text.startsWith('/start')) {
+            return await this.handleStart(chatId);
+        } else if (text.startsWith('/edit')) {
+            return await this.handleEdit(chatId);
+        } else if (text.startsWith('/help')) {
+            return await this.handleHelp(chatId);
+        } else if (session.awaitingText) {
             session.awaitingText = false;
-            
-            await ctx.reply(`⏳ Adding text "${text}" to your image...`);
-            
-            // Implement text overlay
-            await ctx.reply(`✅ Text "${text}" added! (Feature coming soon in Workers)`);
-            
+            await this.bot.sendMessage(chatId, `⏳ Adding text "${text}" to your image...`);
+            await this.bot.sendMessage(chatId, `✅ Text "${text}" added! (Processing simulated)`);
         } else if (session.awaitingDimensions) {
-            const input = ctx.message.text.trim();
-            const dimensions = input.split(/[x×,\s]+/).map(d => parseInt(d.trim()));
+            const dimensions = text.split(/[x×,\s]+/).map(d => parseInt(d.trim()));
             
             if (dimensions.length !== 2 || dimensions.some(d => isNaN(d) || d <= 0)) {
-                return ctx.reply('❌ Invalid format. Please enter dimensions like: 800x600');
+                return await this.bot.sendMessage(chatId, '❌ Invalid format. Please enter dimensions like: 800x600');
             }
             
             const [width, height] = dimensions;
             session.awaitingDimensions = false;
             
-            await ctx.reply(`⏳ Resizing image to ${width}×${height}...`);
-            
-            // Implement resize logic
-            await ctx.reply(`✅ Image resized to ${width}×${height}! (Feature coming soon in Workers)`);
-            
+            await this.bot.sendMessage(chatId, `⏳ Resizing image to ${width}×${height}...`);
+            await this.bot.sendMessage(chatId, `✅ Image resized to ${width}×${height}! (Processing simulated)`);
         } else {
-            await ctx.reply('🤔 Send /edit to start editing an image, or /help for assistance.');
+            await this.bot.sendMessage(chatId, '🤔 Send /edit to start editing an image, or /help for assistance.');
         }
-    });
-    
-    // Error handling
-    bot.catch((err, ctx) => {
-        console.error('Bot error:', err);
-        ctx.reply('❌ An unexpected error occurred. Please try again later.');
-    });
-    
-    return bot;
+    }
+
+    async handleUpdate(update) {
+        try {
+            if (update.message) {
+                if (update.message.photo) {
+                    await this.handlePhoto(update);
+                } else if (update.message.text) {
+                    await this.handleText(update);
+                }
+            } else if (update.callback_query) {
+                await this.handleCallbackQuery(update);
+            }
+        } catch (error) {
+            console.error('Error handling update:', error);
+            if (update.message) {
+                await this.bot.sendMessage(update.message.chat.id, '❌ An error occurred. Please try again.');
+            }
+        }
+    }
 }
 
 // Cloudflare Workers fetch handler
@@ -298,13 +364,13 @@ export default {
             return new Response('Bot token not configured', { status: 500 });
         }
         
-        const bot = createWorkerBot(BOT_TOKEN);
+        const workerBot = new WorkerBot(BOT_TOKEN);
         
         // Handle webhook
         if (request.method === 'POST') {
             try {
                 const update = await request.json();
-                await bot.handleUpdate(update);
+                await workerBot.handleUpdate(update);
                 return new Response('OK');
             } catch (error) {
                 console.error('Error handling update:', error);
@@ -314,9 +380,23 @@ export default {
         
         // Handle GET requests (for health checks)
         if (request.method === 'GET') {
-            return new Response('Telegram AI Image Editor Bot is running on Cloudflare Workers!', {
-                headers: { 'Content-Type': 'text/plain' }
-            });
+            const url = new URL(request.url);
+            
+            if (url.pathname === '/') {
+                return new Response('🤖 Telegram AI Image Editor Bot is running on Cloudflare Workers!\n\n✅ Status: Online\n🌍 Global deployment active', {
+                    headers: { 'Content-Type': 'text/plain' }
+                });
+            }
+            
+            if (url.pathname === '/health') {
+                return new Response(JSON.stringify({
+                    status: 'healthy',
+                    timestamp: new Date().toISOString(),
+                    version: '1.0.0'
+                }), {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
         }
         
         return new Response('Method not allowed', { status: 405 });

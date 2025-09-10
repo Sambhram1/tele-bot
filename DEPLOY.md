@@ -2,6 +2,11 @@
 
 Deploy your Telegram bot to Cloudflare Workers in just one command!
 
+## ✅ Fixed Issues
+
+**Node.js Compatibility:** Updated to use native fetch API instead of Telegraf for full Workers compatibility.
+**Compatibility Date:** Updated to `2024-09-23` to support Node.js built-in modules.
+
 ## Quick Start
 
 ### Prerequisites
